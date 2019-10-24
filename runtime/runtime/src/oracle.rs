@@ -1,9 +1,11 @@
 use codec::{Encode, Decode};
 use sr_primitives::traits::{Member};
-use support::{decl_event, decl_module, decl_storage, Parameter, ensure};
+use support::{decl_event, decl_module, decl_storage, Parameter, 
+    StorageValue, StorageMap, ensure};
 use system::offchain::{SubmitUnsignedTransaction};
 use app_crypto::{KeyTypeId, RuntimeAppPublic};
 use system::{ensure_none, ensure_signed};
+use rstd::result;
 
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"orin");
 
@@ -30,7 +32,7 @@ pub mod sr25519 {
 pub type Value = u32;
 
 // TODO: BTCValue is just an example, feel free to replace it with another name 
-#[derive(Encode, Decode, Clone, PartialEq, Eq)]
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug)]
 pub struct BTCValue<BlockNumber>
 	where BlockNumber: PartialEq + Eq + Decode + Encode,
 {
@@ -70,7 +72,7 @@ decl_storage! {
 decl_event!(
     pub enum Event<T>
     where
-        AccountId = <T as system::Trait>::AccountId,
+        <T as system::Trait>::AccountId,
     {
         SetAuthority(AccountId),
         UpdateValue(Value),
@@ -84,32 +86,12 @@ decl_module! {
         // Initializing events
         fn deposit_event() = default;
 
-        verify_value(
-            origin,
-			value: BTCValue<T::BlockNumber>,
-			signature: <T::AuthorityId as RuntimeAppPublic>::Signature) 
-        {
-            ensure_none(origin)?;
-
-            // verify the signature
-            let public = Self::authorised_key();
-            let signature_valid = value.using_encoded(|encoded_value| {
-			    public.verify(&encoded_value, &signature)
-			});
-			ensure!(signature_valid, "Invalid value signature.");
-
-            // update value in storage
-            <Values<T>>::insert(value.block_number, value);
-
-            Self::deposit_event(RawEvent::UpdateValue(10));
-        }
-
         // Runs after every block.
 		fn offchain_worker(now: T::BlockNumber) {
             let block_number = Self::block_number();
             if let Some(block_number) = block_number {
                 let value = Self::values(block_number);
-                if Some(value) = value {
+                if let Some(value) = value {
                     Self::offchain(now);
                 }
             } else {
@@ -127,6 +109,25 @@ decl_module! {
 
 			Self::deposit_event(RawEvent::SetAuthority(sender));
 		}
+
+        fn verify_value(origin, value: BTCValue<T::BlockNumber>
+			// signature: <T::AuthorityId as RuntimeAppPublic>::Signature
+        ) {
+            ensure_none(origin)?;
+
+            // verify the signature
+            let _public = Self::authorised_key();
+            // TODO: public doesn't have `verify` function
+            // let signature_valid = value.using_encoded(|encoded_value| {
+			//     public.verify(&encoded_value, &signature)
+			// });
+			// ensure!(signature_valid, "Invalid value signature.");
+
+            // update value in storage
+            <Values<T>>::insert(value.block_number, value);
+
+            Self::deposit_event(RawEvent::UpdateValue(10));
+        }
     }
 }
 
@@ -137,22 +138,22 @@ impl<T: Trait> Module<T> {
 	}
 
     fn request_value(now: T::BlockNumber) {
-        <Values<T>>::insert(now, None);
-
         // TODO: use offchain http request to get btc/usdt price
         let value = 10;
-        Self::update_value(value)
+        Self::update_value(value);
     }
 
-    fn update_value(value: Value) {
+    fn update_value(value: Value) -> result::Result<(), &'static str> {
         let block_number = Self::block_number();
         ensure!(block_number.is_some(), "block number can not be empty");
+        let block_number = block_number.unwrap();
 
         let key = Self::authorised_key();
 		if let Some(key) = key {
             let value = BTCValue { block_number, value};
-            let signature = key.sign(&value.encode()).ok_or("Offchain error: signing failed!")?;
-			let call = T::Call::verify_value(value, signature);
+            // TODO: key doesn't have `sign` function
+            // let signature = key.sign(&value.encode()).ok_or("Offchain error: signing failed!")?;
+			let call = Call::verify_value(value);
 
 			// submit unsigned transaction
 			let result = T::SubmitTransaction::submit_unsigned(call);
@@ -164,5 +165,7 @@ impl<T: Trait> Module<T> {
 		} else {
 			runtime_io::print_utf8(b"No authorised key!");
 		}
+
+        Ok(())
     }
 }
