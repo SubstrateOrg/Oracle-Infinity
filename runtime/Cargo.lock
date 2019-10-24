@@ -3957,6 +3957,7 @@ dependencies = [
  "srml-support 2.0.0 (git+https://github.com/paritytech/substrate.git?rev=bbe90e31ed2fd71dc037fc385dae32584d2b1ce8)",
  "srml-system 2.0.0 (git+https://github.com/paritytech/substrate.git?rev=bbe90e31ed2fd71dc037fc385dae32584d2b1ce8)",
  "srml-timestamp 2.0.0 (git+https://github.com/paritytech/substrate.git?rev=bbe90e31ed2fd71dc037fc385dae32584d2b1ce8)",
+ "substrate-application-crypto 2.0.0 (git+https://github.com/paritytech/substrate.git?rev=bbe90e31ed2fd71dc037fc385dae32584d2b1ce8)",
  "substrate-client 2.0.0 (git+https://github.com/paritytech/substrate.git?rev=bbe90e31ed2fd71dc037fc385dae32584d2b1ce8)",
  "substrate-consensus-babe-primitives 2.0.0 (git+https://github.com/paritytech/substrate.git?rev=bbe90e31ed2fd71dc037fc385dae32584d2b1ce8)",
  "substrate-offchain-primitives 2.0.0 (git+https://github.com/paritytech/substrate.git?rev=bbe90e31ed2fd71dc037fc385dae32584d2b1ce8)",

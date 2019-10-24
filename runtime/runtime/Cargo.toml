@@ -153,3 +153,9 @@ default_features = false
 git = 'https://github.com/paritytech/substrate.git'
 package = 'sr-version'
 rev = 'bbe90e31ed2fd71dc037fc385dae32584d2b1ce8'
+
+[dependencies.app-crypto]
+default_features = false
+git = "https://github.com/paritytech/substrate/"
+package = "substrate-application-crypto"
+rev = 'bbe90e31ed2fd71dc037fc385dae32584d2b1ce8'
