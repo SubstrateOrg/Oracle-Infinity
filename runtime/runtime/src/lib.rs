@@ -2,38 +2,40 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
-#![recursion_limit="256"]
+#![recursion_limit = "256"]
 
 // Make the WASM binary available.
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
-use rstd::prelude::*;
-use primitives::{OpaqueMetadata, crypto::key_types};
-use sr_primitives::{
-	ApplyResult, transaction_validity::TransactionValidity, generic, create_runtime_str,
-	impl_opaque_keys, AnySignature
-};
-use sr_primitives::traits::{NumberFor, BlakeTwo256, Block as BlockT, DigestFor, StaticLookup, Verify, ConvertInto};
-use sr_primitives::weights::Weight;
-use babe::{AuthorityId as BabeId};
-use grandpa::{AuthorityId as GrandpaId, AuthorityWeight as GrandpaWeight};
-use grandpa::fg_primitives::{self, ScheduledChange};
+use babe::AuthorityId as BabeId;
 use client::{
-	block_builder::api::{CheckInherentsResult, InherentData, self as block_builder_api},
-	runtime_api as client_api, impl_runtime_apis
+	block_builder::api::{self as block_builder_api, CheckInherentsResult, InherentData},
+	impl_runtime_apis, runtime_api as client_api,
 };
-use version::RuntimeVersion;
+use grandpa::fg_primitives::{self, ScheduledChange};
+use grandpa::{AuthorityId as GrandpaId, AuthorityWeight as GrandpaWeight};
+use primitives::{crypto::key_types, OpaqueMetadata};
+use rstd::prelude::*;
+use sr_primitives::traits::{
+	BlakeTwo256, Block as BlockT, ConvertInto, DigestFor, NumberFor, StaticLookup, Verify,
+};
+use sr_primitives::weights::Weight;
+use sr_primitives::{
+	create_runtime_str, generic, impl_opaque_keys, transaction_validity::TransactionValidity,
+	AnySignature, ApplyResult,
+};
 #[cfg(feature = "std")]
 use version::NativeVersion;
+use version::RuntimeVersion;
 
 // A few exports that help ease life for downstream crates.
+pub use balances::Call as BalancesCall;
 #[cfg(any(feature = "std", test))]
 pub use sr_primitives::BuildStorage;
+pub use sr_primitives::{Perbill, Permill};
+pub use support::{construct_runtime, parameter_types, StorageValue};
 pub use timestamp::Call as TimestampCall;
-pub use balances::Call as BalancesCall;
-pub use sr_primitives::{Permill, Perbill};
-pub use support::{StorageValue, construct_runtime, parameter_types};
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -68,6 +70,8 @@ mod template;
 mod kitties;
 
 mod linked_item;
+
+mod oracle;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -267,6 +271,10 @@ impl kitties::Trait for Runtime {
 	type Currency = Balances;
 }
 
+impl oracle::Trait for Runtime {
+	type Event = Event;
+}
+
 construct_runtime!(
 	pub enum Runtime where
 		Block = Block,
@@ -284,6 +292,8 @@ construct_runtime!(
 		TemplateModule: template::{Module, Call, Storage, Event<T>},
 		// Substrate Kitties module
 		Kitties: kitties::{Module, Storage, Call, Event<T>},
+
+		Orace: oracle::{Module, Storage, Call, Event<T>},
 	}
 );
 
@@ -304,14 +314,15 @@ pub type SignedExtra = (
 	system::CheckEra<Runtime>,
 	system::CheckNonce<Runtime>,
 	system::CheckWeight<Runtime>,
-	balances::TakeFees<Runtime>
+	balances::TakeFees<Runtime>,
 );
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic = generic::UncheckedExtrinsic<Address, Call, Signature, SignedExtra>;
 /// Extrinsic type that has already been checked.
 pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, Call, SignedExtra>;
 /// Executive: handles dispatch to the various modules.
-pub type Executive = executive::Executive<Runtime, Block, system::ChainContext<Runtime>, Runtime, AllModules>;
+pub type Executive =
+	executive::Executive<Runtime, Block, system::ChainContext<Runtime>, Runtime, AllModules>;
 
 impl_runtime_apis! {
 	impl client_api::Core<Block> for Runtime {
