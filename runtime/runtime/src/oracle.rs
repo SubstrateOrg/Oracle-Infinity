@@ -64,7 +64,10 @@ decl_storage! {
 
         pub BlockNumber get(block_number): Option<T::BlockNumber>;
 
-        /// values for specific block_number
+        /// Provide value for external api consuming
+        pub Value get(value): Option<Value>;
+
+        /// Values for specific block_number
         pub Values get(values): map T::BlockNumber => Option<BTCValue<T::BlockNumber>>;
     }
 }
@@ -125,6 +128,7 @@ decl_module! {
 
             // update value in storage
             <Values<T>>::insert(value.block_number, value);
+            <Value<T>>::put(value.value);
 
             Self::deposit_event(RawEvent::UpdateValue(10));
         }
