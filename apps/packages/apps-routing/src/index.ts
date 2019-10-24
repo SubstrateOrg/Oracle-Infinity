@@ -26,49 +26,53 @@ import sudo from './sudo';
 import toolbox from './toolbox';
 import transfer from './transfer';
 import treasury from './treasury';
+import kitties from './kitties';
 
-const routes: Routes = appSettings.uiMode === 'light'
-  ? ([] as Routes).concat(
-    // dashboard,
-    explorer,
-    accounts,
-    addressbook,
-    claims,
-    transfer,
-    genericAsset,
-    null,
-    staking,
-    democracy,
-    council,
-    // TODO Not sure about the inclusion of treasury & parachains here
-    null,
-    settings
-  )
-  : ([] as Routes).concat(
-    // dashboard,
-    explorer,
-    accounts,
-    addressbook,
-    claims,
-    transfer,
-    genericAsset,
-    null,
-    staking,
-    democracy,
-    council,
-    treasury,
-    parachains,
-    null,
-    contracts,
-    storage,
-    extrinsics,
-    sudo,
-    null,
-    settings,
-    toolbox,
-    js,
-    template
-  );
+const routes: Routes =
+  appSettings.uiMode === 'light'
+    ? ([] as Routes).concat(
+        // dashboard,
+        explorer,
+        accounts,
+        addressbook,
+        claims,
+        transfer,
+        genericAsset,
+        null,
+        staking,
+        democracy,
+        council,
+        // TODO Not sure about the inclusion of treasury & parachains here
+        null,
+        settings,
+        kitties
+      )
+    : ([] as Routes).concat(
+        // dashboard,
+        explorer,
+        accounts,
+        addressbook,
+        claims,
+        transfer,
+        genericAsset,
+        null,
+        staking,
+        democracy,
+        council,
+        treasury,
+        parachains,
+        null,
+        contracts,
+        storage,
+        extrinsics,
+        sudo,
+        null,
+        settings,
+        toolbox,
+        js,
+        template,
+        kitties
+      );
 
 const setup: Routing = {
   default: 'explorer',
