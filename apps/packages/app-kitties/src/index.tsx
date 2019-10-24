@@ -11,7 +11,7 @@ import { AppProps, I18nProps } from '@polkadot/react-components/types';
 // external imports (including those found in the packages/*
 // of this repo)
 import React, { useState } from 'react';
-
+import Tabs from '@polkadot/react-components/Tabs';
 // local imports and components
 import AccountSelector from './AccountSelector';
 import translate from './translate';
@@ -19,13 +19,25 @@ import translate from './translate';
 // define our internal types
 interface Props extends AppProps, I18nProps {}
 
-function App({ className }: Props): React.ReactElement<Props> {
+function App({ basePath, t, className }: Props): React.ReactElement<Props> {
   const [accountId, setAccountId] = useState<string | null>(null);
 
   return (
     // in all apps, the main wrapper is setup to allow the padding
     // and margins inside the application. (Just from a consistent pov)
     <main className={className}>
+      <header>
+        <Tabs
+          basePath={basePath}
+          items={[
+            {
+              isRoot: true,
+              name: 'kitties',
+              text: t('Kitties')
+            }
+          ]}
+        />
+      </header>
       <AccountSelector onChange={setAccountId} />
     </main>
   );
