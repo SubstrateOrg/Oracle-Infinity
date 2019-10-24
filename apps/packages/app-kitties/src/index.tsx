@@ -13,9 +13,7 @@ import { AppProps, I18nProps } from '@polkadot/react-components/types';
 import React, { useState } from 'react';
 
 // local imports and components
-// import AccountSelector from './AccountSelector';
-// import SummaryBar from './SummaryBar';
-// import Transfer from './Transfer';
+import AccountSelector from './AccountSelector';
 import translate from './translate';
 
 // define our internal types
@@ -28,8 +26,7 @@ function App({ className }: Props): React.ReactElement<Props> {
     // in all apps, the main wrapper is setup to allow the padding
     // and margins inside the application. (Just from a consistent pov)
     <main className={className}>
-      {/* <SummaryBar /> */}
-      <div>Kitties</div>
+      <AccountSelector onChange={setAccountId} />
     </main>
   );
 }
