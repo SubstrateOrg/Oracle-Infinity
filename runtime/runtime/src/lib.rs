@@ -18,7 +18,8 @@ use grandpa::{AuthorityId as GrandpaId, AuthorityWeight as GrandpaWeight};
 use primitives::{crypto::key_types, OpaqueMetadata};
 use rstd::prelude::*;
 use sr_primitives::traits::{
-	BlakeTwo256, Block as BlockT, ConvertInto, DigestFor, NumberFor, StaticLookup, Verify, SaturatedConversion
+	BlakeTwo256, Block as BlockT, ConvertInto, DigestFor, NumberFor, SaturatedConversion,
+	StaticLookup, Verify,
 };
 use sr_primitives::weights::Weight;
 use sr_primitives::{
@@ -30,14 +31,14 @@ use version::NativeVersion;
 use version::RuntimeVersion;
 
 // A few exports that help ease life for downstream crates.
+use crate::oracle::sr25519::AuthorityId as OracleId;
 pub use balances::Call as BalancesCall;
 #[cfg(any(feature = "std", test))]
 pub use sr_primitives::BuildStorage;
 pub use sr_primitives::{Perbill, Permill};
 pub use support::{construct_runtime, parameter_types, StorageValue};
-pub use timestamp::Call as TimestampCall;
-use crate::oracle::sr25519::{AuthorityId as OracleId};
 use system::offchain::TransactionSubmitter;
+pub use timestamp::Call as TimestampCall;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -284,7 +285,10 @@ impl system::offchain::CreateTransaction<Runtime, UncheckedExtrinsic> for Runtim
 		call: Call,
 		account: AccountId,
 		index: Index,
-	) -> Option<(Call, <UncheckedExtrinsic as sr_primitives::traits::Extrinsic>::SignaturePayload)> {
+	) -> Option<(
+		Call,
+		<UncheckedExtrinsic as sr_primitives::traits::Extrinsic>::SignaturePayload,
+	)> {
 		let period = 1 << 8;
 		let current_block = System::block_number().saturated_into::<u64>();
 		let tip = 0;
