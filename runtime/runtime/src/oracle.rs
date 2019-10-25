@@ -5,7 +5,15 @@ use support::{decl_event, decl_module, decl_storage, Parameter,
 use system::offchain::{SubmitUnsignedTransaction};
 use app_crypto::{KeyTypeId, RuntimeAppPublic};
 use system::{ensure_none, ensure_signed};
+use primitives::offchain::{HttpRequestId, HttpRequestStatus, Duration};
 use rstd::result;
+use rstd::vec::Vec;
+
+/// only for debug
+fn debug(msg: &str) {
+    // let msg = format!("\x1b[34m{}", msg);
+    runtime_io::print_utf8(msg.as_bytes());
+}
 
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"orin");
 
@@ -22,7 +30,7 @@ pub mod sr25519 {
 	}
 
 	/// An oracle signature using sr25519 as its crypto.
-	pub type AuthoritySignature = app_sr25519::Signature;
+	// pub type AuthoritySignature = app_sr25519::Signature;
 
 	/// An oracle identifier using sr25519 as its crypto.
 	pub type AuthorityId = app_sr25519::Public;
@@ -37,11 +45,11 @@ pub struct BTCValue<BlockNumber>
 	where BlockNumber: PartialEq + Eq + Decode + Encode,
 {
 	block_number: BlockNumber,
-	value: Value,
+	price: Value,
 }
 
 
-pub trait Trait: system::Trait {
+pub trait Trait: timestamp::Trait {
     /// The identifier type for an authority.
 	type AuthorityId: Member + Parameter + RuntimeAppPublic + Default + Ord;
     	
@@ -64,8 +72,8 @@ decl_storage! {
 
         pub BlockNumber get(block_number): Option<T::BlockNumber>;
 
-        /// Provide value for external api consuming
-        pub Value get(value): Option<Value>;
+        /// Provide price value for external api consuming
+        pub PriceValue get(price_value): Option<Value>;
 
         /// Values for specific block_number
         pub Values get(values): map T::BlockNumber => Option<BTCValue<T::BlockNumber>>;
@@ -94,7 +102,7 @@ decl_module! {
             let block_number = Self::block_number();
             if let Some(block_number) = block_number {
                 let value = Self::values(block_number);
-                if let Some(value) = value {
+                if value.is_some() {
                     Self::offchain(now);
                 }
             } else {
@@ -127,10 +135,10 @@ decl_module! {
 			// ensure!(signature_valid, "Invalid value signature.");
 
             // update value in storage
-            <Values<T>>::insert(value.block_number, value);
-            <Value<T>>::put(value.value);
+            <Values<T>>::insert(value.block_number, &value);
+            <PriceValue>::put(value.price);
 
-            Self::deposit_event(RawEvent::UpdateValue(10));
+            Self::deposit_event(RawEvent::UpdateValue(value.price));
         }
     }
 }
@@ -141,10 +149,36 @@ impl<T: Trait> Module<T> {
         Self::request_value(now);
 	}
 
-    fn request_value(now: T::BlockNumber) {
+    fn request_value(_now: T::BlockNumber) {
         // TODO: use offchain http request to get btc/usdt price
-        let value = 10;
-        Self::update_value(value);
+        // TODO: uri and api key should write into sotrage like authorisedKey
+        let uri = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?id=1";
+        let api_key_value = "20a084fd-afdd-4c81-8e95-08868a45fcaf";
+        let api_key = "X-CMC_PRO_API_KEY";
+
+        let id: HttpRequestId = runtime_io::http_request_start("GET", uri, &[0]).unwrap();
+	    match runtime_io::http_request_add_header(id, api_key, api_key_value) {
+		    Err(_) => { debug("Add request header failed !!!") }
+		    Ok(_) => {  debug("Add request header succeed") }
+	    };
+
+        let deadline = runtime_io::timestamp().add(Duration::from_millis(10_000));
+        match runtime_io::http_response_wait(&[id], Some(deadline))[0] {
+			HttpRequestStatus::Finished(200) => {debug("request succeed")},
+			_ => {debug("request failed")}
+		}
+
+        let buffer_len = 2048;
+        let mut buf = Vec::with_capacity(buffer_len as usize);
+		buf.resize(buffer_len as usize, 0);
+		let res = runtime_io::http_response_read_body(id, &mut buf, Some(deadline));
+        match res {
+            Ok(read) => { runtime_io::print_utf8(&buf[..read])} // TODO: how to parse the result `data[1].quote.USD.price`
+            Err(_) => {debug("parse body failed")}
+        }
+
+        let price = 8600;
+        Self::update_value(price);
     }
 
     fn update_value(value: Value) -> result::Result<(), &'static str> {
@@ -153,21 +187,21 @@ impl<T: Trait> Module<T> {
         let block_number = block_number.unwrap();
 
         let key = Self::authorised_key();
-		if let Some(key) = key {
-            let value = BTCValue { block_number, value};
+		if let Some(_key) = key {
+            let btc_value = BTCValue { block_number, price: value};
             // TODO: key doesn't have `sign` function
             // let signature = key.sign(&value.encode()).ok_or("Offchain error: signing failed!")?;
-			let call = Call::verify_value(value);
+			let call = Call::verify_value(btc_value);
 
 			// submit unsigned transaction
 			let result = T::SubmitTransaction::submit_unsigned(call);
 			match result {
-				Ok(_a) => runtime_io::print_utf8(b"execute off-chain worker success"),
-				Err(_b) => runtime_io::print_utf8(b"execute off-chain worker failed!"),
+				Ok(_) => runtime_io::print_utf8(b"execute off-chain worker success"),
+				Err(_) => runtime_io::print_utf8(b"execute off-chain worker failed!"),
 			}
 			
 		} else {
-			runtime_io::print_utf8(b"No authorised key!");
+			runtime_io::print_utf8(b"No authorised key found!");
 		}
 
         Ok(())
