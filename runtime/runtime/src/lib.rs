@@ -18,7 +18,7 @@ use grandpa::{AuthorityId as GrandpaId, AuthorityWeight as GrandpaWeight};
 use primitives::{crypto::key_types, OpaqueMetadata};
 use rstd::prelude::*;
 use sr_primitives::traits::{
-	BlakeTwo256, Block as BlockT, ConvertInto, DigestFor, NumberFor, StaticLookup, Verify,
+	BlakeTwo256, Block as BlockT, ConvertInto, DigestFor, NumberFor, StaticLookup, Verify, SaturatedConversion
 };
 use sr_primitives::weights::Weight;
 use sr_primitives::{
@@ -36,6 +36,8 @@ pub use sr_primitives::BuildStorage;
 pub use sr_primitives::{Perbill, Permill};
 pub use support::{construct_runtime, parameter_types, StorageValue};
 pub use timestamp::Call as TimestampCall;
+use crate::oracle::sr25519::{AuthorityId as OracleId};
+use system::offchain::TransactionSubmitter;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -62,9 +64,6 @@ pub type Hash = primitives::H256;
 
 /// Digest item type.
 pub type DigestItem = generic::DigestItem<Hash>;
-
-/// Used for the module template in `./template.rs`
-mod template;
 
 /// Used for the module kitties in `./kitties.rs`
 mod kitties;
@@ -260,19 +259,49 @@ impl sudo::Trait for Runtime {
 	type Proposal = Call;
 }
 
-/// Used for the module template in `./template.rs`
-impl template::Trait for Runtime {
-	type Event = Event;
-}
-
 impl kitties::Trait for Runtime {
 	type Event = Event;
 	type KittyIndex = u32;
 	type Currency = Balances;
 }
 
+/// We need to define the Transaction signer for that using the Key definition
+type SubmitTransaction = TransactionSubmitter<OracleId, Runtime, UncheckedExtrinsic>;
+
 impl oracle::Trait for Runtime {
+	type Call = Call;
 	type Event = Event;
+	type AuthorityId = OracleId;
+	type SubmitTransaction = SubmitTransaction;
+}
+
+/// Lastly we also need to implement the CreateTransaction signer for the runtime
+/// only use in submitSignedTransaction
+impl system::offchain::CreateTransaction<Runtime, UncheckedExtrinsic> for Runtime {
+	type Signature = Signature;
+
+	fn create_transaction<F: system::offchain::Signer<AccountId, Self::Signature>>(
+		call: Call,
+		account: AccountId,
+		index: Index,
+	) -> Option<(Call, <UncheckedExtrinsic as sr_primitives::traits::Extrinsic>::SignaturePayload)> {
+		let period = 1 << 8;
+		let current_block = System::block_number().saturated_into::<u64>();
+		let tip = 0;
+		let extra: SignedExtra = (
+			system::CheckVersion::<Runtime>::new(),
+			system::CheckGenesis::<Runtime>::new(),
+			system::CheckEra::<Runtime>::from(generic::Era::mortal(period, current_block)),
+			system::CheckNonce::<Runtime>::from(index),
+			system::CheckWeight::<Runtime>::new(),
+			balances::TakeFees::<Runtime>::from(tip),
+		);
+		let raw_payload = SignedPayload::new(call, extra).ok()?;
+		let signature = F::sign(account.clone(), &raw_payload)?;
+		let address = Indices::unlookup(account);
+		let (call, extra, _) = raw_payload.deconstruct();
+		Some((call, (address, signature, extra)))
+	}
 }
 
 construct_runtime!(
@@ -288,12 +317,9 @@ construct_runtime!(
 		Indices: indices::{default, Config<T>},
 		Balances: balances::{default, Error},
 		Sudo: sudo,
-		// Used for the module template in `./template.rs`
-		TemplateModule: template::{Module, Call, Storage, Event<T>},
 		// Substrate Kitties module
 		Kitties: kitties::{Module, Storage, Call, Event<T>},
-
-		Orace: oracle::{Module, Storage, Call, Event<T>},
+		Oracle: oracle::{Module, Storage, Call, Event<T>},
 	}
 );
 
@@ -323,6 +349,8 @@ pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, Call, SignedExt
 /// Executive: handles dispatch to the various modules.
 pub type Executive =
 	executive::Executive<Runtime, Block, system::ChainContext<Runtime>, Runtime, AllModules>;
+/// Just that the Signature Signer needs this aditional definition as well
+pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
 
 impl_runtime_apis! {
 	impl client_api::Core<Block> for Runtime {
