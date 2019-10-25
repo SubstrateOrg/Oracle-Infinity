@@ -7,10 +7,11 @@ use app_crypto::{KeyTypeId, RuntimeAppPublic};
 use system::{ensure_none, ensure_signed};
 use primitives::offchain::{HttpRequestId, HttpRequestStatus, Duration};
 use rstd::result;
+use rstd::vec::Vec;
 
 /// only for debug
 fn debug(msg: &str) {
-    let msg = format!("\x1b[34m{}", msg);
+    // let msg = format!("\x1b[34m{}", msg);
     runtime_io::print_utf8(msg.as_bytes());
 }
 
@@ -48,7 +49,7 @@ pub struct BTCValue<BlockNumber>
 }
 
 
-pub trait Trait: system::Trait {
+pub trait Trait: timestamp::Trait {
     /// The identifier type for an authority.
 	type AuthorityId: Member + Parameter + RuntimeAppPublic + Default + Ord;
     	
@@ -157,23 +158,27 @@ impl<T: Trait> Module<T> {
 
         let id: HttpRequestId = runtime_io::http_request_start("GET", uri, &[0]).unwrap();
 	    match runtime_io::http_request_add_header(id, api_key, api_key_value) {
-		    Err(()) => { debug("Add request header failed !!!") }
-		    Ok(_) => {  debug("Add request header finished") }
+		    Err(_) => { debug("Add request header failed !!!") }
+		    Ok(_) => {  debug("Add request header succeed") }
 	    };
 
-        let deadline = runtime_io::timestamp::now().add(Duration::from_millis(10_000));
-        match runtime_io.http_response_wait(&[id], Some(deadline))[0] {
+        let deadline = runtime_io::timestamp().add(Duration::from_millis(10_000));
+        match runtime_io::http_response_wait(&[id], Some(deadline))[0] {
 			HttpRequestStatus::Finished(200) => {debug("request succeed")},
-			v => {debug("request failed")}
+			_ => {debug("request failed")}
 		}
 
-        let mut buf = vec![0; 2048];
-		let n = runtime_io.http_response_read_body(id, &mut buf, Some(deadline)).unwrap();
-        // TODO: how to parse the result `data[1].quote.USD.price`
-		// assert_eq!(&buf[..n], b"Hello World!");
+        let buffer_len = 2048;
+        let mut buf = Vec::with_capacity(buffer_len as usize);
+		buf.resize(buffer_len as usize, 0);
+		let res = runtime_io::http_response_read_body(id, &mut buf, Some(deadline));
+        match res {
+            Ok(read) => { runtime_io::print_utf8(&buf[..read])} // TODO: how to parse the result `data[1].quote.USD.price`
+            Err(_) => {debug("parse body failed")}
+        }
 
-        // let value = 7500;
-        // Self::update_value(value);
+        let price = 8600;
+        Self::update_value(price);
     }
 
     fn update_value(value: Value) -> result::Result<(), &'static str> {
@@ -191,8 +196,8 @@ impl<T: Trait> Module<T> {
 			// submit unsigned transaction
 			let result = T::SubmitTransaction::submit_unsigned(call);
 			match result {
-				Ok(_a) => runtime_io::print_utf8(b"execute off-chain worker success"),
-				Err(_b) => runtime_io::print_utf8(b"execute off-chain worker failed!"),
+				Ok(_) => runtime_io::print_utf8(b"execute off-chain worker success"),
+				Err(_) => runtime_io::print_utf8(b"execute off-chain worker failed!"),
 			}
 			
 		} else {
