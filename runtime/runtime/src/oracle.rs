@@ -152,9 +152,9 @@ impl<T: Trait> Module<T> {
         let nom_value = Self::request_nomics_value();
 
         let values: [u32; 3] = [cmc_value, cds_value, nom_value];
-        let average_value = Self::average_values(values);
-
-        Self::update_value(average_value);
+        if let Some(average_value) = Self::average_values(values) {
+            Self::update_value(average_value);
+        }
     }
 
     fn parse_result(res: [u8; BUFFER_LEN], start: &str) -> Value {
@@ -172,8 +172,7 @@ impl<T: Trait> Module<T> {
     }
 
     // request limited
-    fn request_cmc_value() -> Value {
-        // TODO: use offchain http request to get btc/usdt price
+    fn _request_cmc_value() -> Value {
         // TODO: uri and api key should write into sotrage like authorisedKey
         let uri = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?id=1";
         let api_key_value = "20a084fd-afdd-4c81-8e95-08868a45fcaf";
@@ -252,12 +251,31 @@ impl<T: Trait> Module<T> {
         }
     }
 
-    fn average_values(values: [u32; 3]) -> Value {
-        // 1. filter value == 0; if filter_values_length < 2, give up this round
-        // 2. calculate variance, variance_threshold = 100; the threshold could be put in the storage and set by authoritor
-        // 3. If variance is valid, calculate the average value
-        let num = values.iter().sum::<u32>() / values.len() as u32;
-        num
+    fn average_values(values: [u32; 3]) -> Option<Value> {
+        // 1. filter value == 0; if filter_values_count < 2, give up this round
+        let values = values.iter().filter(|v| *v > &0).collect::<Vec<_>>();
+        let count = values.len() as u32;
+        if count < 2 {
+            return None;
+        }
+
+        // 2. calculate variance, variance_threshold = 10_000;
+        // The threshold could be put in the storage and set by authoritor
+        let mean = values.iter().map(|v| **v).sum::<u32>() / count;
+        let variance = values
+            .iter()
+            .map(|v| {
+                let diff = mean as i32 - (**v as i32);
+                diff * diff
+            })
+            .sum::<i32>()
+            / count as i32;
+
+        if variance > 10_000 {
+            return None;
+        }
+
+        Some(mean)
     }
 
     fn update_value(value: Value) -> Result<(), &'static str> {
