@@ -1,7 +1,7 @@
 use app_crypto::{KeyTypeId, RuntimeAppPublic};
 use codec::{Decode, Encode};
 use primitives::offchain::{Duration, HttpRequestId, HttpRequestStatus};
-use rstd::result;
+use rstd::result::Result;
 use rstd::vec::Vec;
 // use serde_json::serde::{Deserialize, Serialize};
 use sr_primitives::traits::Member;
@@ -46,6 +46,13 @@ where
 {
     block_number: BlockNumber,
     price: Value,
+}
+
+#[derive(Encode, Decode, Clone, Debug)]
+pub enum PriceFrom {
+    CoinMarketCap,
+    CoinDesk,
+    Binance,
 }
 
 pub trait Trait: timestamp::Trait {
@@ -97,6 +104,7 @@ decl_module! {
 
         // Runs after every block.
         fn offchain_worker(now: T::BlockNumber) {
+            // FIXME: only request a series of request at once
             let block_number = Self::block_number();
             if let Some(block_number) = block_number {
                 let value = Self::values(block_number);
@@ -144,73 +152,82 @@ decl_module! {
 impl<T: Trait> Module<T> {
     fn offchain(now: T::BlockNumber) {
         <BlockNumber<T>>::put(now);
-        // Self::request_value(now);
-        Self::request_value_second(now);
+
+        Self::request_cmc_value();
+        Self::request_cds_value();
     }
 
-    fn request_value(_now: T::BlockNumber) {
+    fn request_cmc_value() {
         // TODO: use offchain http request to get btc/usdt price
         // TODO: uri and api key should write into sotrage like authorisedKey
         let uri = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?id=1";
         let api_key_value = "20a084fd-afdd-4c81-8e95-08868a45fcaf";
         let api_key = "X-CMC_PRO_API_KEY";
 
-        let id: HttpRequestId = runtime_io::http_request_start("GET", uri, &[0]).unwrap();
-        match runtime_io::http_request_add_header(id, api_key, api_key_value) {
-            Err(_) => debug("Add request header failed !!!"),
-            Ok(_) => debug("Add request header succeed"),
-        };
-
-        let deadline = runtime_io::timestamp().add(Duration::from_millis(10_000));
-        match runtime_io::http_response_wait(&[id], Some(deadline))[0] {
-            HttpRequestStatus::Finished(200) => debug("request succeed"),
-            _ => debug("request failed"),
-        }
-
-        let buffer_len = 2048;
-        let mut buf = Vec::with_capacity(buffer_len as usize);
-        buf.resize(buffer_len as usize, 0);
-        let res = runtime_io::http_response_read_body(id, &mut buf, Some(deadline));
+        let res = Self::http_request_get(uri, Some((api_key, api_key_value)));
         match res {
-            Ok(read) => runtime_io::print_utf8(&buf[..read]), // TODO: how to parse the result `data[1].quote.USD.price`
+            Ok(_buf) => (), // TODO: how to parse the result `data[1].quote.USD.price`
             Err(_) => debug("parse body failed"),
         }
 
+        // FIXME: Get price from response
         let price = 8600;
         Self::update_value(price);
     }
 
-    fn request_value_second(_now: T::BlockNumber) {
+    fn request_csd_value() {
         let uri = "https://api.coindesk.com/v1/bpi/currentprice/USD.json";
-        let api_key_value = "";
-        let api_key = "";
-        let id: HttpRequestId = runtime_io::http_request_start("GET", uri, &[0]).unwrap();
-        match runtime_io::http_request_add_header(id, api_key, api_key_value) {
-            Err(_) => debug("Add request header failed !!!"),
-            Ok(_) => debug("Add request header succeed"),
-        };
-        let deadline = runtime_io::timestamp().add(Duration::from_millis(10_000));
-        match runtime_io::http_response_wait(&[id], Some(deadline))[0] {
-            HttpRequestStatus::Finished(200) => debug("request succeed"),
-            _ => debug("request failed"),
-        }
-        let buffer_len = 2048;
-        let mut buf = Vec::with_capacity(buffer_len as usize);
-        buf.resize(buffer_len as usize, 0);
-        let res = runtime_io::http_response_read_body(id, &mut buf, Some(deadline));
+        let res = Self::http_request_get(uri, None);
         match res {
-            Ok(read) => {
-                runtime_io::print_utf8(&buf[..read]);
-                // let jsone = serde_json::from_str(read);
-                // runtime_io::print_utf8(json);
-            } // TODO: how to parse the result `data[1].quote.USD.price`
+            Ok(_buf) => (),
             Err(_) => debug("parse body failed"),
         }
+
+        // FIXME: Get price from response
         let price = 8600;
         Self::update_value(price);
     }
 
-    fn update_value(value: Value) -> result::Result<(), &'static str> {
+    fn http_request_get(
+        uri: &str,
+        header: Option<(&str, &str)>,
+    ) -> Result<[u8; 2048], &'static str> {
+        // TODO: extract id, maybe use for other place
+        let id: HttpRequestId = runtime_io::http_request_start("GET", uri, &[0]).unwrap();
+        let deadline = runtime_io::timestamp().add(Duration::from_millis(10_000));
+
+        if let Some((name, value)) = header {
+            match runtime_io::http_request_add_header(id, name, value) {
+                Err(_) => debug("Add request header failed"),
+                Ok(_) => debug("Add request header succeed"),
+            };
+        }
+
+        match runtime_io::http_response_wait(&[id], Some(deadline))[0] {
+            HttpRequestStatus::Finished(200) => (),
+            _ => return Err("Request failed"),
+        }
+
+        // set a fix len for result
+        let buffer_len = 2048;
+        let mut buf = Vec::with_capacity(buffer_len as usize);
+        buf.resize(buffer_len as usize, 0);
+
+        let res = runtime_io::http_response_read_body(id, &mut buf, Some(deadline));
+        match res {
+            Ok(_len) => {
+                let result = &buf[..buffer_len];
+                runtime_io::print_utf8(result);
+
+                let mut res: [u8; 2048] = [0; 2048];
+                res.copy_from_slice(result);
+                return Ok(res);
+            }
+            Err(_) => return Err("parse body failed"),
+        }
+    }
+
+    fn update_value(value: Value) -> Result<(), &'static str> {
         let block_number = Self::block_number();
         ensure!(block_number.is_some(), "block number can not be empty");
         let block_number = block_number.unwrap();
