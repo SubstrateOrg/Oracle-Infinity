@@ -1,13 +1,13 @@
 use app_crypto::{KeyTypeId, RuntimeAppPublic};
 use codec::{Decode, Encode};
 use primitives::offchain::{Duration, HttpRequestId, HttpRequestStatus};
-use rstd::result;
+use rstd::result::Result;
 use rstd::vec::Vec;
-// use serde_json::serde::{Deserialize, Serialize};
 use sr_primitives::traits::Member;
 use support::{decl_event, decl_module, decl_storage, ensure, Parameter, StorageMap, StorageValue};
 use system::offchain::SubmitUnsignedTransaction;
 use system::{ensure_none, ensure_signed};
+
 /// only for debug
 fn debug(msg: &str) {
     // let msg = format!("\x1b[34m{}", msg);
@@ -15,6 +15,7 @@ fn debug(msg: &str) {
 }
 
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"orin");
+pub const BUFFER_LEN: usize = 2048;
 
 pub mod sr25519 {
     mod app_sr25519 {
@@ -97,6 +98,7 @@ decl_module! {
 
         // Runs after every block.
         fn offchain_worker(now: T::BlockNumber) {
+            // FIXME: only request a series of request at once
             let block_number = Self::block_number();
             if let Some(block_number) = block_number {
                 let value = Self::values(block_number);
@@ -119,7 +121,7 @@ decl_module! {
             Self::deposit_event(RawEvent::SetAuthority(sender));
         }
 
-        fn verify_value(origin, value: BTCValue<T::BlockNumber>
+        fn submit_value(origin, value: BTCValue<T::BlockNumber>
             // signature: <T::AuthorityId as RuntimeAppPublic>::Signature
         ) {
             ensure_none(origin)?;
@@ -134,7 +136,7 @@ decl_module! {
 
             // update value in storage
             <Values<T>>::insert(value.block_number, &value);
-            <PriceValue>::put(value.price);
+            <PriceValue>::put(32);
 
             Self::deposit_event(RawEvent::UpdateValue(value.price));
         }
@@ -144,96 +146,144 @@ decl_module! {
 impl<T: Trait> Module<T> {
     fn offchain(now: T::BlockNumber) {
         <BlockNumber<T>>::put(now);
-        // Self::request_value(now);
-        Self::request_value_second(now);
+
+        let cmc_value = Self::request_gec_value();
+        let cds_value = Self::request_cds_value();
+        let nom_value = Self::request_nomics_value();
+
+        let values: [u32; 3] = [cmc_value, cds_value, nom_value];
+        let average_value = Self::average_values(values);
+
+        Self::update_value(average_value);
     }
 
-    fn request_value(_now: T::BlockNumber) {
+    fn parse_result(res: [u8; BUFFER_LEN], start: &str) -> Value {
+        if let Ok(data) = core::str::from_utf8(&res) {
+            let start_bytes = data.find(start).unwrap_or(0) + start.len();
+            let end_bytes = start_bytes + 10;
+            let price = &data[start_bytes..end_bytes];
+
+            let mid_bytes = price.find(".").unwrap_or(0);
+            let rs = &price[0..mid_bytes];
+            return rs.replace(",", "").parse::<Value>().unwrap_or(0);
+        } else {
+            return 0;
+        }
+    }
+
+    // request limited
+    fn request_cmc_value() -> Value {
         // TODO: use offchain http request to get btc/usdt price
         // TODO: uri and api key should write into sotrage like authorisedKey
         let uri = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?id=1";
         let api_key_value = "20a084fd-afdd-4c81-8e95-08868a45fcaf";
         let api_key = "X-CMC_PRO_API_KEY";
 
-        let id: HttpRequestId = runtime_io::http_request_start("GET", uri, &[0]).unwrap();
-        match runtime_io::http_request_add_header(id, api_key, api_key_value) {
-            Err(_) => debug("Add request header failed !!!"),
-            Ok(_) => debug("Add request header succeed"),
-        };
-
-        let deadline = runtime_io::timestamp().add(Duration::from_millis(10_000));
-        match runtime_io::http_response_wait(&[id], Some(deadline))[0] {
-            HttpRequestStatus::Finished(200) => debug("request succeed"),
-            _ => debug("request failed"),
-        }
-
-        let buffer_len = 2048;
-        let mut buf = Vec::with_capacity(buffer_len as usize);
-        buf.resize(buffer_len as usize, 0);
-        let res = runtime_io::http_response_read_body(id, &mut buf, Some(deadline));
+        let header = Some((api_key, api_key_value));
+        let res = Self::http_request_get(uri, header);
         match res {
-            Ok(read) => runtime_io::print_utf8(&buf[..read]), // TODO: how to parse the result `data[1].quote.USD.price`
-            Err(_) => debug("parse body failed"),
+            Ok(buf) => return Self::parse_result(buf, "price\":"),
+            Err(_) => return 0,
         }
-
-        let price = 8600;
-        Self::update_value(price);
     }
 
-    fn request_value_second(_now: T::BlockNumber) {
+    fn request_gec_value() -> Value {
+        let uri = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
+        let res = Self::http_request_get(uri, None);
+        match res {
+            Ok(buf) => return Self::parse_result(buf, "usd\":"),
+            Err(_) => return 0,
+        }
+    }
+
+    fn request_cds_value() -> Value {
         let uri = "https://api.coindesk.com/v1/bpi/currentprice/USD.json";
-        let api_key_value = "";
-        let api_key = "";
-        let id: HttpRequestId = runtime_io::http_request_start("GET", uri, &[0]).unwrap();
-        match runtime_io::http_request_add_header(id, api_key, api_key_value) {
-            Err(_) => debug("Add request header failed !!!"),
-            Ok(_) => debug("Add request header succeed"),
-        };
-        let deadline = runtime_io::timestamp().add(Duration::from_millis(10_000));
-        match runtime_io::http_response_wait(&[id], Some(deadline))[0] {
-            HttpRequestStatus::Finished(200) => debug("request succeed"),
-            _ => debug("request failed"),
-        }
-        let buffer_len = 2048;
-        let mut buf = Vec::with_capacity(buffer_len as usize);
-        buf.resize(buffer_len as usize, 0);
-        let res = runtime_io::http_response_read_body(id, &mut buf, Some(deadline));
+        let res = Self::http_request_get(uri, None);
         match res {
-            Ok(read) => {
-                runtime_io::print_utf8(&buf[..read]);
-                // let jsone = serde_json::from_str(read);
-                // runtime_io::print_utf8(json);
-            } // TODO: how to parse the result `data[1].quote.USD.price`
-            Err(_) => debug("parse body failed"),
+            Ok(buf) => return Self::parse_result(buf, "rate\":\""),
+            Err(_) => return 0,
         }
-        let price = 8600;
-        Self::update_value(price);
     }
 
-    fn update_value(value: Value) -> result::Result<(), &'static str> {
+    fn request_nomics_value() -> Value {
+        let uri = "https://api.nomics.com/v1/currencies/ticker?key=3d93bdca7ee51ad25fcf650f2883b92d&ids=BTC";
+        let res = Self::http_request_get(uri, None);
+        match res {
+            Ok(buf) => return Self::parse_result(buf, "price\":\""),
+            Err(_) => return 0,
+        }
+    }
+
+    fn http_request_get(
+        uri: &str,
+        header: Option<(&str, &str)>,
+    ) -> Result<[u8; BUFFER_LEN], &'static str> {
+        // TODO: extract id, maybe use for other place
+        let id: HttpRequestId = runtime_io::http_request_start("GET", uri, &[0]).unwrap();
+        let deadline = runtime_io::timestamp().add(Duration::from_millis(10_000));
+
+        if let Some((name, value)) = header {
+            match runtime_io::http_request_add_header(id, name, value) {
+                Ok(_) => (),
+                Err(_) => return Err("Add request header failed"),
+            };
+        }
+
+        match runtime_io::http_response_wait(&[id], Some(deadline))[0] {
+            HttpRequestStatus::Finished(200) => (),
+            _ => return Err("Request failed"),
+        }
+
+        // set a fix len for result
+        let mut buf = Vec::with_capacity(BUFFER_LEN as usize);
+        buf.resize(BUFFER_LEN as usize, 0);
+
+        let res = runtime_io::http_response_read_body(id, &mut buf, Some(deadline));
+        match res {
+            Ok(_len) => {
+                let result = &buf[..BUFFER_LEN];
+                // runtime_io::print_utf8(result);
+
+                let mut res: [u8; BUFFER_LEN] = [0; BUFFER_LEN];
+                res.copy_from_slice(result);
+                return Ok(res);
+            }
+            Err(_) => return Err("Parse body failed"),
+        }
+    }
+
+    fn average_values(values: [u32; 3]) -> Value {
+        // 1. filter value == 0; if filter_values_length < 2, give up this round
+        // 2. calculate variance, variance_threshold = 100; the threshold could be put in the storage and set by authoritor
+        // 3. If variance is valid, calculate the average value
+        let num = values.iter().sum::<u32>() / values.len() as u32;
+        num
+    }
+
+    fn update_value(value: Value) -> Result<(), &'static str> {
         let block_number = Self::block_number();
         ensure!(block_number.is_some(), "block number can not be empty");
         let block_number = block_number.unwrap();
 
-        let key = Self::authorised_key();
-        if let Some(_key) = key {
-            let btc_value = BTCValue {
-                block_number,
-                price: value,
-            };
-            // TODO: key doesn't have `sign` function
-            // let signature = key.sign(&value.encode()).ok_or("Offchain error: signing failed!")?;
-            let call = Call::verify_value(btc_value);
+        // let key = Self::authorised_key();
+        // if let Some(_key) = key {
+        let btc_value = BTCValue {
+            block_number,
+            price: value,
+        };
+        // TODO: key doesn't have `sign` function
+        // let signature = key.sign(&value.encode()).ok_or("Offchain error: signing failed!")?;
+        let call = Call::submit_value(btc_value);
 
-            // submit unsigned transaction
-            let result = T::SubmitTransaction::submit_unsigned(call);
-            match result {
-                Ok(_) => runtime_io::print_utf8(b"execute off-chain worker success"),
-                Err(_) => runtime_io::print_utf8(b"execute off-chain worker failed!"),
-            }
-        } else {
-            runtime_io::print_utf8(b"No authorised key found!");
+        // submit unsigned transaction
+        let result = T::SubmitTransaction::submit_unsigned(call);
+        match result {
+            Ok(_) => runtime_io::print_utf8(b"execute off-chain worker success"),
+            Err(_) => runtime_io::print_utf8(b"execute off-chain worker failed!"),
         }
+        // } else {
+        //     runtime_io::print_utf8(b"No authorised key found!");
+        // }
 
         Ok(())
     }
